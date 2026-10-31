@@ -1,6 +1,7 @@
 package com.tibo.eagentdroid;
 
 import android.content.Context;
+import android.util.Base64;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -66,7 +67,7 @@ public final class ToolExec {
         try {
             switch (c.tool) {
                 case "shell":
-                    return term.run(a);
+                    return shellRun(term, a);
                 case "screencap":
                     return screencap(term, filesDir(ctx));
                 case "win":
@@ -90,6 +91,19 @@ public final class ToolExec {
         } catch (Exception e) {
             return r(1, "执行异常: " + e.getMessage());
         }
+    }
+
+    /**
+     * 脚本整体传入：base64 落盘后 `sh 文件 < /dev/null` 执行。
+     * 不再逐行写进交互式 stdin —— 避免注释被拆、脚本抢 stdin、会话被污染。
+     */
+    private static Term.Result shellRun(Term term, String script) throws Exception {
+        if (script == null || script.trim().isEmpty()) return r(1, "脚本为空");
+        String b64 = Base64.encodeToString(script.getBytes("UTF-8"), Base64.NO_WRAP);
+        String cmd = "mkdir -p /data/local/tmp/ead_ws; printf %s '" + b64
+                + "' | base64 -d > /data/local/tmp/ead_ws/.ead_cmd.sh 2>/dev/null"
+                + "; sh /data/local/tmp/ead_ws/.ead_cmd.sh < /dev/null";
+        return term.run(cmd);
     }
 
     private static Term.Result screencap(Term term, File dir) {
