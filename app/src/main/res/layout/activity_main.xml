@@ -1,0 +1,271 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <TextView
+        android:id="@+id/tvTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="8dp"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:text="EAgent | 第 0 次对话 | 第 0 次用工具"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button android:id="@+id/tabSet" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:minHeight="40dp" android:paddingLeft="0dp" android:paddingRight="0dp" android:textSize="10sp" android:text="设定"/>
+        <Button android:id="@+id/tabChat" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:minHeight="40dp" android:paddingLeft="0dp" android:paddingRight="0dp" android:textSize="10sp" android:text="对话"/>
+        <Button android:id="@+id/tabWeb" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:minHeight="40dp" android:paddingLeft="0dp" android:paddingRight="0dp" android:textSize="10sp" android:text="WEB"/>
+        <Button android:id="@+id/tabRisk" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:minHeight="40dp" android:paddingLeft="0dp" android:paddingRight="0dp" android:textSize="10sp" android:text="高频风控"/>
+        <Button android:id="@+id/tabPs" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:minHeight="40dp" android:paddingLeft="0dp" android:paddingRight="0dp" android:textSize="10sp" android:text="PowerShell"/>
+        <Button android:id="@+id/tabOther" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:minHeight="40dp" android:paddingLeft="0dp" android:paddingRight="0dp" android:textSize="10sp" android:text="其它"/>
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <ScrollView
+            android:id="@+id/scrollHost"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:fillViewport="true"
+            android:scrollbars="vertical">
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="480dp">
+
+                <LinearLayout
+                    android:id="@+id/panelSet"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="480dp"
+                    android:orientation="vertical"
+                    android:padding="8dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textSize="12sp"
+                        android:text="【看这里】\n1. 先到 WEB 页登录 DeepSeek（未登录无法开工）\n2. 登录完成后回到本页\n3. 选新/旧对话，点【开始】发送系统提示词"/>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <RadioGroup
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <RadioButton android:id="@+id/rbNew" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="12sp" android:checked="true" android:text="新对话"/>
+                            <RadioButton android:id="@+id/rbOld" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="12sp" android:text="旧对话"/>
+                        </RadioGroup>
+
+                        <Button android:id="@+id/btnStart" android:layout_width="wrap_content" android:layout_height="wrap_content" android:minHeight="44dp" android:text="开始"/>
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingTop="6dp"
+                        android:textSize="12sp"
+                        android:text="【发送信息给Ai】\n一定要从下面发送，而不是从网页端发送。"/>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingTop="6dp"
+                        android:textSize="12sp"
+                        android:text="以下是系统提示词 | 如果你知道自己在做什么，才可自行修改"/>
+
+                    <EditText
+                        android:id="@+id/etPrompt"
+                        android:layout_width="match_parent"
+                        android:layout_height="300dp"
+                        android:gravity="top"
+                        android:inputType="textMultiLine"
+                        android:textSize="11sp"/>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/panelChat"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="480dp"
+                    android:orientation="vertical"
+                    android:padding="8dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:id="@+id/tvLoginState"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingBottom="6dp"
+                        android:textSize="12sp"
+                        android:text="登录状态：未检测到（请先到 WEB 页登录）"/>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:textSize="11sp"
+                        android:text="给 DeepSeek 发送消息"/>
+
+                    <EditText
+                        android:id="@+id/etChat"
+                        android:layout_width="match_parent"
+                        android:layout_height="120dp"
+                        android:gravity="top"
+                        android:inputType="textMultiLine"
+                        android:textSize="12sp"/>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+
+                        <Button android:id="@+id/btnSendChat" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:minHeight="44dp" android:text="发送"/>
+                        <Button android:id="@+id/btnUpload" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:minHeight="44dp" android:text="上传文件..."/>
+                    </LinearLayout>
+
+                    <Button android:id="@+id/btnGoWeb" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:minHeight="44dp" android:text="去 WEB 页登录 / 查看对话"/>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/panelRisk"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="480dp"
+                    android:orientation="vertical"
+                    android:padding="8dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:textSize="13sp"
+                        android:text="极端高频使用本工具会导致账号封禁\n本页会增加延迟，避免高频对话"/>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingTop="10dp"
+                        android:textSize="12sp"
+                        android:text="> 额外随机延迟发送（秒）默认 3~20\n仅勾选【允许自动执行】后生效"/>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="12sp" android:text="最低延迟"/>
+                        <EditText android:id="@+id/etMinDelay" android:layout_width="80dp" android:layout_height="48dp" android:inputType="number" android:textSize="12sp" android:text="3"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="12sp" android:text="  最高延迟"/>
+                        <EditText android:id="@+id/etMaxDelay" android:layout_width="80dp" android:layout_height="48dp" android:inputType="number" android:textSize="12sp" android:text="12"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/panelPs"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="480dp"
+                    android:orientation="vertical"
+                    android:padding="8dp"
+                    android:visibility="gone">
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="12sp" android:text="(执行指令)"/>
+
+                    <EditText
+                        android:id="@+id/etPsCmd"
+                        android:layout_width="match_parent"
+                        android:layout_height="220dp"
+                        android:gravity="top"
+                        android:inputType="textMultiLine"
+                        android:textSize="11sp"/>
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="12sp" android:text="(执行结果)"/>
+
+                    <EditText
+                        android:id="@+id/etPsOut"
+                        android:layout_width="match_parent"
+                        android:layout_height="220dp"
+                        android:gravity="top"
+                        android:inputType="textMultiLine"
+                        android:textSize="11sp"/>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/panelOther"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="480dp"
+                    android:orientation="vertical"
+                    android:padding="8dp"
+                    android:visibility="gone">
+
+                    <Button android:id="@+id/btnBring" android:layout_width="wrap_content" android:layout_height="wrap_content" android:minHeight="44dp" android:text="置入窗口"/>
+
+                    <CheckBox android:id="@+id/cbBringStart" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="12sp" android:text="启动时置入 [重启软件生效]"/>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingTop="6dp"
+                        android:paddingBottom="10dp"
+                        android:textSize="12sp"
+                        android:text="将 ds 页面置入本窗口\n&gt; 某些情况下会导致程序崩溃，欢迎提交 issue"/>
+
+                    <Button android:id="@+id/btnDraft" android:layout_width="wrap_content" android:layout_height="wrap_content" android:minHeight="44dp" android:text="草稿本"/>
+
+                    <Button android:id="@+id/btnWipe" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="40dp" android:minHeight="44dp" android:text="删除数据"/>
+
+                    <Button android:id="@+id/btnPerm" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:minHeight="44dp" android:text="权限"/>
+                </LinearLayout>
+            </FrameLayout>
+        </ScrollView>
+
+        <LinearLayout
+            android:id="@+id/panelWeb"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <WebView
+                android:id="@+id/wv"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"/>
+        </LinearLayout>
+    </FrameLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="4dp">
+
+        <CheckBox android:id="@+id/cbNight" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="11sp" android:text="夜间模式"/>
+        <CheckBox android:id="@+id/cbAuto" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:textSize="11sp" android:text="允许自动执行"/>
+        <CheckBox android:id="@+id/cbHidePs" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:textSize="11sp" android:text="隐藏命令行窗口"/>
+        <Button android:id="@+id/btnStop" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:minHeight="44dp" android:textSize="11sp" android:text="// 急停 //"/>
+    </LinearLayout>
+
+</LinearLayout>
