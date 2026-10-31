@@ -137,7 +137,7 @@
                         android:layout_height="wrap_content"
                         android:orientation="horizontal">
 
-                        <Button android:id="@+id/btnSendChat" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:minHeight="44dp" android:text="发送"/>
+                        <Button android:id="@+id/btnSendChat" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:minHeight="44dp" android:text="填入 WEB"/>
                         <Button android:id="@+id/btnUpload" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:minHeight="44dp" android:text="上传文件..."/>
                     </LinearLayout>
 
@@ -246,6 +246,24 @@
             android:layout_height="match_parent"
             android:orientation="vertical"
             android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingLeft="8dp"
+                android:paddingRight="4dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textSize="11sp"
+                    android:text="WEB（不自动发送：填入后请手动点发送）"/>
+
+                <Button android:id="@+id/btnKeyboard" android:layout_width="wrap_content" android:layout_height="wrap_content" android:minHeight="38dp" android:minWidth="0dp" android:paddingLeft="10dp" android:paddingRight="10dp" android:textSize="11sp" android:text="⌨ 键盘"/>
+            </LinearLayout>
 
             <WebView
                 android:id="@+id/wv"
