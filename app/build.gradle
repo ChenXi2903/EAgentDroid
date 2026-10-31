@@ -1,0 +1,55 @@
+plugins {
+    id 'com.android.application'
+}
+
+// ---- 签名配置：存在 keystore.properties 且 storePassword 非空时才启用 ----
+def ksProps = new Properties()
+def ksPropsFile = rootProject.file('keystore.properties')
+boolean hasKeystore = ksPropsFile.exists()
+if (hasKeystore) {
+    ksPropsFile.withInputStream { ksProps.load(it) }
+    hasKeystore = ksProps.getProperty('storePassword', '').trim().length() > 0
+            && ksProps.getProperty('keyAlias', '').trim().length() > 0
+}
+
+android {
+    namespace 'com.tibo.eagentdroid'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.tibo.eagentdroid'
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+
+    signingConfigs {
+        if (hasKeystore) {
+            release {
+                storeFile rootProject.file(ksProps.getProperty('storeFile', 'release.jks'))
+                storePassword ksProps.getProperty('storePassword', '')
+                keyAlias ksProps.getProperty('keyAlias', '')
+                keyPassword ksProps.getProperty('keyPassword', '')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (hasKeystore) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+}
