@@ -8,7 +8,10 @@ import android.text.method.ScrollingMovementMethod;
 import android.view.View;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.inputmethod.InputMethodManager;
 import android.webkit.JavascriptInterface;
+import android.webkit.ValueCallback;
+import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -40,6 +43,7 @@ public class MainActivity extends AppCompatActivity {
     private View panelSet, panelChat, panelRisk, panelPs, panelOther;
     private TextView tvLoginState;
     private Button btnGoWeb;
+    private Button btnKeyboard;
     private RadioButton rbNew, rbOld;
     private Button btnStart, btnSendChat, btnUpload, btnBring, btnDraft, btnWipe, btnStop, btnPerm;
     private EditText etPrompt, etChat, etMinDelay, etMaxDelay, etPsCmd, etPsOut;
@@ -57,7 +61,9 @@ public class MainActivity extends AppCompatActivity {
     private boolean approving = false;
     private boolean shellReported = false;
     private boolean webReady = false;
-    private boolean sentRetried = false;
+    private int sentStage = 0;
+    private ValueCallback<Uri[]> chooserCallback;
+    private boolean uploadArmed = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -114,6 +120,7 @@ public class MainActivity extends AppCompatActivity {
         cbHidePs = findViewById(R.id.cbHidePs);
         tvLoginState = findViewById(R.id.tvLoginState);
         btnGoWeb = findViewById(R.id.btnGoWeb);
+        btnKeyboard = findViewById(R.id.btnKeyboard);
         wv = findViewById(R.id.wv);
         etPsCmd.setMovementMethod(new ScrollingMovementMethod());
         etPsOut.setMovementMethod(new ScrollingMovementMethod());
@@ -135,6 +142,26 @@ public class MainActivity extends AppCompatActivity {
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
         wv.addJavascriptInterface(new Bridge(), "EAD");
+        wv.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> cb, FileChooserParams params) {
+                if (chooserCallback != null) {
+                    chooserCallback.onReceiveValue(null);
+                }
+                chooserCallback = cb;
+                uploadArmed = false;
+                try {
+                    Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+                    i.setType("*/*");
+                    i.addCategory(Intent.CATEGORY_OPENABLE);
+                    startActivityForResult(Intent.createChooser(i, "选择要上传的文件"), REQ_PICK);
+                    return true;
+                } catch (Exception e) {
+                    chooserCallback = null;
+                    return false;
+                }
+            }
+        });
         wv.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
@@ -148,12 +175,13 @@ public class MainActivity extends AppCompatActivity {
 
         btnStart.setOnClickListener(v -> startConversation());
         btnSendChat.setOnClickListener(v -> sendUserMessage());
-        btnUpload.setOnClickListener(v -> pickFile());
+        btnUpload.setOnClickListener(v -> startWebUpload());
         btnBring.setOnClickListener(v -> {
             showPanel(1);
             wv.reload();
         });
         btnGoWeb.setOnClickListener(v -> showPanel(2));
+        btnKeyboard.setOnClickListener(v -> toggleKeyboard());
         btnDraft.setOnClickListener(v -> editDraft());
         btnWipe.setOnClickListener(v -> wipeData());
         btnPerm.setOnClickListener(v -> showPermissionCenter());
@@ -240,6 +268,24 @@ public class MainActivity extends AppCompatActivity {
         sendToWeb(PromptKit.task(t));
     }
 
+    /** 优先走网页官方上传：点附件按钮 → 触发 onShowFileChooser 接管；2.5s 未触发则回退读文本。 */
+    private void startWebUpload() {
+        if (!webReady) {
+            toast("请先在 WEB 页登录 DeepSeek");
+            showPanel(2);
+            return;
+        }
+        uploadArmed = true;
+        wv.evaluateJavascript(PromptKit.UPLOAD_JS, null);
+        wv.postDelayed(() -> {
+            if (uploadArmed) {
+                uploadArmed = false;
+                toast("未触发网页上传，改为读取文本发送");
+                pickFile();
+            }
+        }, 2500);
+    }
+
     private void pickFile() {
         try {
             Intent i = new Intent(Intent.ACTION_GET_CONTENT);
@@ -253,6 +299,19 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        // 网页发起的文件选择（走 DeepSeek 官方上传通道）
+        if (chooserCallback != null) {
+            Uri[] uris = null;
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                uris = new Uri[]{data.getData()};
+            }
+            try {
+                chooserCallback.onReceiveValue(uris);
+            } catch (Exception ignored) {
+            }
+            chooserCallback = null;
+            return;
+        }
         if (requestCode != REQ_PICK || resultCode != RESULT_OK || data == null) return;
         Uri uri = data.getData();
         if (uri == null) return;
@@ -380,7 +439,8 @@ public class MainActivity extends AppCompatActivity {
         etPsOut.setText(note);
     }
 
-    private void sendToWebDelayed(final String text) {
+    private void sendToWebDelayed(final String raw) {
+        final String text = clipForWeb(raw);
         if (paused) return;
         if (!cbAuto.isChecked()) {
             sendToWeb(text);
@@ -416,7 +476,6 @@ public class MainActivity extends AppCompatActivity {
     private void sendToWeb(String text) {
         if (wv == null || isFinishing() || isDestroyed() || text == null) return;
         lastSentHash = text.hashCode();
-        sentRetried = false;
         wv.evaluateJavascript(PromptKit.sendJs(text), null);
     }
 
@@ -474,8 +533,9 @@ public class MainActivity extends AppCompatActivity {
         public void onTextReady() {
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) return;
-                wv.postDelayed(() -> nativePressEnter(false), 300);
-                wv.postDelayed(MainActivity.this::verifySendResult, 1500);
+                hideIme();
+                showPanel(2);
+                toast("已填入输入框，请在网页内手动点发送");
             });
         }
 
@@ -628,14 +688,63 @@ public class MainActivity extends AppCompatActivity {
                 toast("已发送");
                 return;
             }
-            if (!sentRetried) {
-                sentRetried = true;
+            if (sentStage == 0) {
+                sentStage = 1;
                 nativePressEnter(true);
+                wv.postDelayed(this::verifySendResult, 1200);
+                return;
+            }
+            if (sentStage == 1) {
+                sentStage = 2;
+                wv.evaluateJavascript(PromptKit.CLICK_SEND_JS, null);
                 wv.postDelayed(this::verifySendResult, 1200);
                 return;
             }
             toast("文本已填入但未自动发出，请手动点发送");
         });
+    }
+
+    /** 收软键盘（填值后不抢焦点、不弹输入法）。 */
+    private void hideIme() {
+        try {
+            InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (imm != null && wv != null) {
+                imm.hideSoftInputFromWindow(wv.getWindowToken(), 0);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** 右上角键盘键：先让网页内的输入框获焦，再弹输入法；再点一次收起。 */
+    private void toggleKeyboard() {
+        try {
+            InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (imm == null || wv == null) return;
+            if (imm.isActive()) {
+                imm.hideSoftInputFromWindow(wv.getWindowToken(), 0);
+                wv.clearFocus();
+                return;
+            }
+            showPanel(2);
+            wv.evaluateJavascript(PromptKit.FOCUS_JS, null);
+            wv.requestFocus();
+            wv.postDelayed(() -> {
+                try {
+                    imm.showSoftInput(wv, InputMethodManager.SHOW_FORCED);
+                } catch (Exception ignored) {
+                }
+            }, 200);
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** 回填内容过长会把网页输入框撑炸、吞掉发送键，这里做中间截断。 */
+    private static String clipForWeb(String s) {
+        if (s == null) return null;
+        if (s.length() <= 4000) return s;
+        return s.substring(0, 1800)
+                + "\n…[中间省略 " + (s.length() - 3400) + " 字符]…\n"
+                + s.substring(s.length() - 1600);
     }
 
     private void toast(String s) {
