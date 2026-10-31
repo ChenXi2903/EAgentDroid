@@ -1,0 +1,17 @@
+# 签名与本地配置（绝不提交）
+*.jks
+*.keystore
+keystore.properties
+local.properties
+
+# 构建产物
+.gradle/
+build/
+app/build/
+*.apk
+*.aab
+
+# IDE
+.idea/
+*.iml
+.DS_Store
