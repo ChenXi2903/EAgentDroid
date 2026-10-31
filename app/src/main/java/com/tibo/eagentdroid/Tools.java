@@ -68,8 +68,18 @@ public final class Tools {
         }
         if (pos < 0) return null;
         int s = pos + head.length();
+        // 头行本身（如 "# EAgent_ps_识别头_完全保留本行注释"）整行跳过，
+        // 否则行尾的 "_完全保留本行注释" 会被当命令执行。
+        int nl = reply.indexOf('\n', s);
+        if (nl >= 0) s = nl + 1;
+        int end = reply.length();
         int t = reply.indexOf(PromptKit.TAIL, s);
-        int end = t >= 0 ? t : reply.length();
+        if (t >= 0 && t < end) end = t;
+        int fence = reply.indexOf("```", s);
+        if (fence >= 0 && fence < end) end = fence;
+        int nextHead = reply.indexOf(head, s);
+        if (nextHead >= 0 && nextHead < end) end = nextHead;
+        if (s > end) return null;
         String body = reply.substring(s, Math.min(end, reply.length()));
         Call c = new Call();
         c.tool = tool;
