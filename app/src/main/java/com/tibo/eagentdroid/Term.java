@@ -16,7 +16,7 @@ public final class Term {
 
     private static final int SOFT_CAP = 200000;
     private static final int KEEP = 8000;
-    private static final long CMD_TIMEOUT_MS = 60000L;
+    private static final long CMD_TIMEOUT_MS = 120000L;
 
     private Process proc;
     private PrintStream stdin;
@@ -115,6 +115,13 @@ public final class Term {
         if (cmd == null || cmd.trim().isEmpty()) throw new IOException("空命令");
         seq++;
         String nonce = "__EAD_DONE_" + seq + "_";
+        // 清掉上一轮遗留（后台进程输出等），防止旧输出被当成本轮结果
+        try {
+            while (stdout.ready()) {
+                if (stdout.read() < 0) break;
+            }
+        } catch (Exception ignored) {
+        }
         stdin.print(cmd.endsWith("\n") ? cmd : cmd + "\n");
         stdin.println("__EAD_RC=$?; echo; echo " + nonce + "$__EAD_RC");
         stdin.flush();
