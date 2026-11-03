@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 截图与超长输出都先写到这里，再自动作为附件上传 -->
+    <files-path name="files" path="."/>
+    <cache-path name="cache" path="."/>
+</paths>
