@@ -8,7 +8,6 @@ public final class Tools {
 
     public static final int AUTO = 0;
     public static final int ASK = 1;
-    public static final int DENY = 2;
 
     public static class Call {
         public String tool;
@@ -17,14 +16,6 @@ public final class Tools {
 
     private Tools() {
     }
-
-    private static final Pattern[] DENY_PAT = {
-            Pattern.compile("(?m)^\\s*(exit|logout)\\b"),
-            Pattern.compile("rm\\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)[a-zA-Z]*\\s+/(\\s|$)"),
-            Pattern.compile("\\bmkfs\\b"),
-            Pattern.compile("\\bdd\\b[^|]*\\bof=/dev/(block|mmcblk|sd)"),
-            Pattern.compile("\\b(flash_image|fastboot)\\b")
-    };
 
     private static final String[][] MAP = {
             {PromptKit.PS_HEAD, "shell"},
@@ -175,7 +166,7 @@ public final class Tools {
     }
 
     public static int level(Call c) {
-        if (c == null || c.tool == null) return DENY;
+        if (c == null || c.tool == null) return ASK;
         switch (c.tool) {
             case "shell":
                 return levelCmd(c.arg);
@@ -190,10 +181,7 @@ public final class Tools {
     }
 
     public static int levelCmd(String cmd) {
-        if (cmd == null || cmd.trim().isEmpty()) return DENY;
-        for (Pattern p : DENY_PAT) {
-            if (p.matcher(cmd).find()) return DENY;
-        }
+        if (cmd == null || cmd.trim().isEmpty()) return ASK;
         return ASK;
     }
 }
