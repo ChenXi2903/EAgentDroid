@@ -79,6 +79,8 @@
                         <Button android:id="@+id/btnChangeDir" android:layout_width="wrap_content" android:layout_height="wrap_content" android:minHeight="40dp" android:minWidth="0dp" android:paddingLeft="10dp" android:paddingRight="10dp" android:textSize="11sp" android:text="更改"/>
                     </LinearLayout>
 
+                    <CheckBox android:id="@+id/cbAutoSend" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:text="自动回复（Beta）填入后自动点发送"/>
+
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -186,7 +188,7 @@
                         android:layout_height="wrap_content"
                         android:paddingTop="10dp"
                         android:textSize="12sp"
-                        android:text="> 额外随机延迟发送（秒）默认 3~20\n仅勾选【允许自动执行】后生效"/>
+                        android:text="> 额外随机延迟发送（秒）默认 3~12\n仅勾选【允许自动执行】后生效"/>
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -281,7 +283,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:textSize="11sp"
-                    android:text="WEB（不自动发送：填入后请手动点发送）"/>
+                    android:text="WEB（自动发送需在设定页开 Beta）"/>
 
                 <Button android:id="@+id/btnKeyboard" android:layout_width="wrap_content" android:layout_height="wrap_content" android:minHeight="38dp" android:minWidth="0dp" android:paddingLeft="10dp" android:paddingRight="10dp" android:textSize="11sp" android:text="⌨ 键盘"/>
             </LinearLayout>

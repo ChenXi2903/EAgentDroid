@@ -53,7 +53,7 @@ public class MainActivity extends AppCompatActivity {
     private RadioButton rbNew, rbOld;
     private Button btnStart, btnSendChat, btnUpload, btnBring, btnDraft, btnWipe, btnStop, btnPerm;
     private EditText etPrompt, etChat, etMinDelay, etMaxDelay, etPsCmd, etPsOut;
-    private CheckBox cbBringStart, cbNight, cbAuto, cbHidePs;
+    private CheckBox cbBringStart, cbNight, cbAuto, cbHidePs, cbAutoSend;
     private WebView wv;
 
     private Term term;
@@ -70,6 +70,16 @@ public class MainActivity extends AppCompatActivity {
     private int sentStage = 0;
     private ValueCallback<Uri[]> chooserCallback;
     private boolean uploadArmed = false;
+    private String lastSysPrompt = "";
+    private int lastExecSig = 0;
+    private boolean dupNotified = false;
+    /** 本次发送之前的 AI 消息数；只接受计数更大的新消息，避免把历史命令当新指令执行。 */
+    private int aiBaseCount = -1;
+    private final java.util.LinkedHashSet<Integer> seenReplies = new java.util.LinkedHashSet<>();
+    /** 自动上传：待附加文件与上传成功后要发送的文本。 */
+    private File pendingAttach;
+    private String pendingBlock;
+    private boolean autoAttach = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -124,6 +134,7 @@ public class MainActivity extends AppCompatActivity {
         cbNight = findViewById(R.id.cbNight);
         cbAuto = findViewById(R.id.cbAuto);
         cbHidePs = findViewById(R.id.cbHidePs);
+        cbAutoSend = findViewById(R.id.cbAutoSend);
         tvLoginState = findViewById(R.id.tvLoginState);
         btnGoWeb = findViewById(R.id.btnGoWeb);
         btnKeyboard = findViewById(R.id.btnKeyboard);
@@ -136,8 +147,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void initApp() {
-        shotDir = ToolExec.filesDir(this).getAbsolutePath();
-        etPrompt.setText(PromptKit.system(workDir, TMP_DIR, shotDir));
+        shotDir = "/sdcard/Pictures/EAD";
+        lastSysPrompt = PromptKit.system(workDir, TMP_DIR, shotDir);
+        etPrompt.setText(lastSysPrompt);
 
         tabSet.setOnClickListener(v -> showPanel(0));
         tabChat.setOnClickListener(v -> showPanel(1));
@@ -155,6 +167,25 @@ public class MainActivity extends AppCompatActivity {
             public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> cb, FileChooserParams params) {
                 if (chooserCallback != null) {
                     chooserCallback.onReceiveValue(null);
+                }
+                // 程序化附体：不弹系统选择器，直接把本地文件交给网页（官方上传通道）
+                if (autoAttach && pendingAttach != null) {
+                    Uri u = null;
+                    try {
+                        u = androidx.core.content.FileProvider.getUriForFile(MainActivity.this,
+                                getPackageName() + ".fileprovider", pendingAttach);
+                    } catch (Exception ignored) {
+                    }
+                    autoAttach = false;
+                    uploadArmed = false;
+                    if (u != null) {
+                        cb.onReceiveValue(new Uri[]{u});
+                        setStatus("已自动附加: " + pendingAttach.getName());
+                        final String blk = pendingBlock;
+                        pendingBlock = null;
+                        if (blk != null) wv.postDelayed(() -> sendToWebDelayed(blk), 1500);
+                        return true;
+                    }
                 }
                 chooserCallback = cb;
                 uploadArmed = false;
@@ -174,6 +205,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 if (url != null && url.contains("deepseek.com")) {
+                    aiBaseCount = -1; // 页面重载后计数重置，避免旧基线把新消息全过滤掉
                     wv.evaluateJavascript(PromptKit.POLLER_JS, null);
                     wv.evaluateJavascript(PromptKit.LOGIN_JS, null);
                 }
@@ -263,7 +295,12 @@ public class MainActivity extends AppCompatActivity {
         }
         workDir = dir.trim();
         updateWorkDirLabel();
-        etPrompt.setText(PromptKit.system(workDir, TMP_DIR, shotDir));
+        // 仅当用户没手改过提示词时才刷新，避免覆盖自定义内容
+        String nowPrompt = etPrompt.getText().toString();
+        if (nowPrompt.trim().equals(lastSysPrompt.trim())) {
+            lastSysPrompt = PromptKit.system(workDir, TMP_DIR, shotDir);
+            etPrompt.setText(lastSysPrompt);
+        }
         runToolSilent(Tools.shellCall("mkdir -p " + shq(workDir) + " && cd " + shq(workDir) + " && echo READY"));
         String note = "工作目录已改为 " + workDir + "，请以此为工作目录继续。";
         etChat.setText(note);
@@ -409,13 +446,30 @@ public class MainActivity extends AppCompatActivity {
 
     private void execTool(final Tools.Call c) {
         if (isFinishing() || isDestroyed()) return;
+        // 防死循环（不按时间乱杀）：只拦「紧接上一次、完全相同」的重复调用
+        //   · 中间执行过别的命令 → 视为正常重跑（如 ls → 改文件 → 再 ls），放行
+        //   · mouse/keyboard/screencap/win 不受限制（双击、连拍、重复聚焦都是正常操作）
+        final String argTxt = (c.arg == null ? "" : c.arg);
+        int sig = (c.tool + "|" + argTxt).hashCode();
+        if (sig == lastExecSig && isLoopGuardTool(c.tool)) {
+            if (!dupNotified) {
+                dupNotified = true;
+                setStatus("已拦截连续重复调用：" + c.tool);
+                sendToWeb(PromptKit.refused("本地拦截：与上一次完全相同的工具调用被忽略。请换一种方法、改参数，或结束任务。"));
+            } else {
+                setStatus("仍为连续重复调用，已忽略");
+            }
+            return;
+        }
+        lastExecSig = sig;
+        dupNotified = false;
         if (cbAuto.isChecked()) {
             runTool(c);
             return;
         }
         if (approving) return;
         approving = true;
-        final String msg = "工具: " + c.tool + "\n" + (c.arg.isEmpty() ? "(无参数)" : c.arg);
+        final String msg = "工具: " + c.tool + "\n" + (argTxt.isEmpty() ? "(无参数)" : argTxt);
         new AlertDialog.Builder(this)
                 .setTitle("审核：AI 请求调用工具")
                 .setMessage(msg)
@@ -429,6 +483,12 @@ public class MainActivity extends AppCompatActivity {
                     sendToWeb(PromptKit.refused("用户拒绝了该工具调用，请询问用户意图，不要原样重发。"));
                 })
                 .show();
+    }
+
+    /** 哪些工具需要防循环：只拦幂等/可重放的命令类；交互类（点击、输入、截图）不限。 */
+    private static boolean isLoopGuardTool(String tool) {
+        return "shell".equals(tool) || "file".equals(tool)
+                || "httpget".equals(tool) || "web".equals(tool);
     }
 
     private void runTool(final Tools.Call c) {
@@ -450,12 +510,25 @@ public class MainActivity extends AppCompatActivity {
                         toast("终端: " + cur.shellInfo());
                     }
                 });
-                final Term.Result r = ToolExec.run(MainActivity.this, term, c);
-                final String block = PromptKit.result(c.tool, r.code, r.out);
+                final Term.Result r = ToolExec.run(MainActivity.this, term, c, shotDir);
+                final boolean longOut = r.out != null && r.out.length() > 4000;
+                final String outFile = longOut ? dumpOut(c.tool, r.out) : null;
+                final String shown = (longOut && outFile != null)
+                        ? headTail(r.out, 1500, 1200) + "\n…[全文 " + r.out.length()
+                        + " 字，已写入 " + outFile + " 并作为附件上传]"
+                        : r.out;
+                final String block = PromptKit.result(c.tool, r.code, shown);
+                final String shotPath = "screencap".equals(c.tool) ? uploadCopyPath(r.out) : null;
                 runOnUiThread(() -> {
                     toolNo++;
-                    if (!cbHidePs.isChecked()) etPsOut.setText(r.out);
-                    sendToWebDelayed(block);
+                    if (!cbHidePs.isChecked()) etPsOut.setText(shown);
+                    if (longOut && outFile != null) {
+                        attachAndSend(new File(outFile), block);
+                    } else if (shotPath != null) {
+                        attachAndSend(new File(shotPath), block);
+                    } else {
+                        sendToWebDelayed(block);
+                    }
                 });
             } catch (final Exception e) {
                 runOnUiThread(() -> {
@@ -475,10 +548,140 @@ public class MainActivity extends AppCompatActivity {
                     t.start();
                     term = t;
                 }
-                ToolExec.run(MainActivity.this, term, c);
+                ToolExec.run(MainActivity.this, term, c, shotDir);
             } catch (Exception ignored) {
             }
         });
+    }
+
+    /** 超长输出落盘（应用私有目录，供上传），并在 /sdcard/Download/EAD 留一份方便人看。 */
+    private String dumpOut(String tool, String out) {
+        try {
+            String name = tool + "_" + new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US)
+                    .format(new java.util.Date()) + ".txt";
+            File local = new File(ToolExec.filesDir(this), name);
+            java.io.FileOutputStream fo = new java.io.FileOutputStream(local);
+            fo.write(out.getBytes("UTF-8"));
+            fo.close();
+            final String pub = "/sdcard/Download/EAD/" + name;
+            final File src = local;
+            pool.execute(() -> {
+                try {
+                    if (term == null || !term.isAlive()) {
+                        Term t = new Term();
+                        t.start();
+                        term = t;
+                    }
+                    term.run("mkdir -p /sdcard/Download/EAD && cp -f "
+                            + shq(src.getAbsolutePath()) + " " + shq(pub));
+                } catch (Exception ignored) {
+                }
+            });
+            return local.getAbsolutePath();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 中间截断（保留首尾，便于 AI 判断）。 */
+    private static String headTail(String s, int head, int tail) {
+        if (s == null) return "";
+        if (s.length() <= head + tail + 40) return s;
+        return s.substring(0, head) + "\n…[中间省略 " + (s.length() - head - tail) + " 字]…\n"
+                + s.substring(s.length() - tail);
+    }
+
+    /** 从工具输出里取「上传副本: 路径」。 */
+    private static String uploadCopyPath(String out) {
+        if (out == null) return null;
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("上传副本:\\s*(\\S+)").matcher(out);
+        return m.find() ? m.group(1) : null;
+    }
+
+    /** 直接把文件交给网页 file chooser（不弹系统选择器），成功后回填文本。 */
+    private void attachAndSend(File f, String block) {
+        if (f == null || !f.exists() || wv == null) {
+            sendToWebDelayed(block);
+            return;
+        }
+        pendingAttach = f;
+        pendingBlock = block;
+        autoAttach = true;
+        uploadArmed = true;
+        wv.postDelayed(() -> wv.evaluateJavascript(PromptKit.UPLOAD_JS, null), 300);
+        // 2.5s 内网页没弹 chooser（多为 JS 点击缺 user gesture）→ 原生触摸再点一次
+        wv.postDelayed(() -> tryTapAttach(false), 2500);
+        wv.postDelayed(() -> {
+            if (autoAttach) giveUpAttach();
+        }, 7000);
+    }
+
+    /** 原生触摸点上传入口；若 WEB 页不可见（宽高为 0）先临时切过去再点。 */
+    private void tryTapAttach(boolean retried) {
+        if (!autoAttach) return;
+        if (wv == null || wv.getWidth() <= 0 || wv.getHeight() <= 0) {
+            if (!retried && panelWeb != null && panelWeb.getVisibility() != View.VISIBLE) {
+                showPanel(2);
+                setStatus("自动上传：临时切到 WEB 页");
+                wv.postDelayed(() -> tryTapAttach(true), 600);
+            } else {
+                giveUpAttach();
+            }
+            return;
+        }
+        wv.evaluateJavascript(PromptKit.UPLOAD_RECT_JS, v -> {
+            if (!autoAttach) return;
+            if (!tapFromRect(v)) giveUpAttach();
+        });
+    }
+
+    private void giveUpAttach() {
+        autoAttach = false;
+        uploadArmed = false;
+        setStatus("自动上传未触发，改为文本回填");
+        final String b = pendingBlock;
+        pendingBlock = null;
+        if (b != null) sendToWebDelayed(b);
+    }
+
+    /** rect 形如 "x,y,cw,ch"（CSS 像素），换算成 View 坐标后发原生触摸。 */
+    private boolean tapFromRect(String json) {
+        try {
+            if (json == null) return false;
+            String s = json.replace("\"", "").trim();
+            if (s.isEmpty() || s.startsWith("null")) return false;
+            String[] p = s.split(",");
+            if (p.length < 4) return false;
+            float x = Float.parseFloat(p[0]);
+            float y = Float.parseFloat(p[1]);
+            float cw = Float.parseFloat(p[2]);
+            float ch = Float.parseFloat(p[3]);
+            if (cw <= 0 || ch <= 0) return false;
+            int vx = (int) (x * wv.getWidth() / cw);
+            int vy = (int) (y * wv.getHeight() / ch);
+            if (vx <= 0 || vy <= 0) return false;
+            nativeTap(vx, vy);
+            setStatus("上传入口未响应，已改用原生触摸");
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void nativeTap(int vx, int vy) {
+        long t = SystemClock.uptimeMillis();
+        android.view.MotionEvent d = android.view.MotionEvent.obtain(t, t,
+                android.view.MotionEvent.ACTION_DOWN, vx, vy, 0);
+        wv.dispatchTouchEvent(d);
+        d.recycle();
+        wv.postDelayed(() -> {
+            long t2 = SystemClock.uptimeMillis();
+            android.view.MotionEvent u = android.view.MotionEvent.obtain(t2, t2,
+                    android.view.MotionEvent.ACTION_UP, vx, vy, 0);
+            wv.dispatchTouchEvent(u);
+            u.recycle();
+        }, 60);
     }
 
     private void psLog(Tools.Call c, String note) {
@@ -525,6 +728,9 @@ public class MainActivity extends AppCompatActivity {
         if (wv == null || isFinishing() || isDestroyed() || text == null) return;
         lastSentHash = text.hashCode();
         wv.evaluateJavascript(PromptKit.sendJs(text), null);
+        // 发送后立刻取一次消息数作为基线：更早的消息全部视为历史，不执行
+        wv.evaluateJavascript("document.querySelectorAll('.ds-markdown,div[class*=markdown]').length",
+                v -> aiBaseCount = parseInt(v, -1));
     }
 
     /** 旧实现（合成事件，前端不认，保留作参考，不再调用）。 */
@@ -568,11 +774,26 @@ public class MainActivity extends AppCompatActivity {
 
     private class Bridge {
         @JavascriptInterface
-        public void onAiReply(String text) {
+        public void onAiReply(String text, int count) {
             if (text == null || text.trim().isEmpty()) return;
             runOnUiThread(() -> {
                 String url = wv != null ? wv.getUrl() : null;
                 if (url == null || !url.contains("deepseek.com")) return;
+                // 1) 只认本次发送之后新增的消息（旧对话里的命令一律不执行）
+                // 注：网页用虚拟列表渲染，可见节点数可能不增（旧消息被回收），
+                // 所以只在“节点数反而变少”（页面被重置/回退）时拦截，累加由哈希去重负责
+                if (aiBaseCount >= 0 && count < aiBaseCount) return;
+                // 2) 同一段文本只处理一次（页面重渲染/回滚不会重复触发）
+                int h = text.hashCode();
+                if (seenReplies.contains(h)) return;
+                seenReplies.add(h);
+                if (seenReplies.size() > 40) {
+                    java.util.Iterator<Integer> it = seenReplies.iterator();
+                    if (it.hasNext()) {
+                        it.next();
+                        it.remove();
+                    }
+                }
                 handleAiReply(text);
             });
         }
@@ -582,9 +803,24 @@ public class MainActivity extends AppCompatActivity {
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) return;
                 hideIme();
-                showPanel(2);
-                toast("已填入输入框，请在网页内手动点发送");
+                if (cbAutoSend != null && cbAutoSend.isChecked()) {
+                    // Beta：不等用户切到 WEB 页，直接用实测选择器点发送键
+                    setStatus("已填入，自动发送尝试中（Beta）…");
+                    wv.postDelayed(() -> {
+                        if (wv != null) wv.evaluateJavascript(PromptKit.SEND_BETA_JS, null);
+                    }, 350);
+                } else {
+                    showPanel(2);
+                    toast("已填入输入框，请在网页内手动点发送");
+                }
             });
+        }
+
+        @JavascriptInterface
+        public void onBetaSend(boolean ok) {
+            runOnUiThread(() -> setStatus(ok
+                    ? "自动发送(Beta)：成功"
+                    : "自动发送(Beta)：未确认成功，请到 WEB 页检查"));
         }
 
         @JavascriptInterface

@@ -18,7 +18,8 @@ public final class Tools {
     }
 
     private static final String[][] MAP = {
-            {PromptKit.PS_HEAD, "shell"},
+            {PromptKit.SH_HEAD, "shell"},
+            {PromptKit.SH_HEAD_LEGACY, "shell"},
             {PromptKit.JPG_HEAD, "screencap"},
             {PromptKit.WIN_HEAD, "win"},
             {PromptKit.MOUSE_HEAD, "mouse"},

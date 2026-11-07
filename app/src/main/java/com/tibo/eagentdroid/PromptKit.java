@@ -3,7 +3,10 @@ package com.tibo.eagentdroid;
 /** EAgent 原版协议模板（Android 适配）+ WebView 注入脚本。 */
 public final class PromptKit {
 
-    public static final String PS_HEAD = "EAgent_ps_识别头";
+    /** h 标记已改为中性命名（原 ps 是 PowerShell 的残留）。 */
+    public static final String SH_HEAD = "EAgent_sh_识别头";
+    /** 兼容旧提示词/历史对话里仍带 ps 的写法。 */
+    public static final String SH_HEAD_LEGACY = "EAgent_ps_识别头";
     public static final String JPG_HEAD = "EAgent_getjpg_识别头";
     public static final String WIN_HEAD = "EAgent_窗口_置顶_识别头";
     public static final String MOUSE_HEAD = "EAgent_mouse_simulate_识别头";
@@ -19,13 +22,21 @@ public final class PromptKit {
 
     public static final String POLLER_JS =
             "(function(){if(window.__eadPoll)return;window.__eadPoll=1;"
-                    + "function rd(){var e=document.querySelectorAll('.ds-markdown,div[class*=markdown]');"
-                    + "if(!e||!e.length)return '';var n=e[e.length-1];"
-                    + "return (n.innerText||n.textContent||'').trim();}"
-                    + "window.__eadLast=rd();"
-                    + "setInterval(function(){var t=rd();"
-                    + "if(t&&t!==window.__eadLast){window.__eadLast=t;"
-                    + "try{window.EAD.onAiReply(t);}catch(err){}}},2500);"
+                    + "function list(){return document.querySelectorAll('.ds-markdown,div[class*=markdown]');}"
+                    + "function nodeOf(){var e=list();if(!e||!e.length)return null;return e[e.length-1];}"
+                    + "function textOf(n){if(!n)return '';var c=n.cloneNode(true);"
+                    + "var bad=c.querySelectorAll('.ds-think-content,[class*=think],[class*=reason],[class*=cot]');"
+                    + "for(var i=0;i<bad.length;i++){if(bad[i].parentNode)bad[i].parentNode.removeChild(bad[i]);}"
+                    + "return ((c.innerText||c.textContent||'')+'').trim();}"
+                    + "window.__eadLast='';window.__eadAt=0;"
+                    + "window.__eadSent=textOf(nodeOf())||'';"
+                    + "setInterval(function(){var t=textOf(nodeOf());"
+                    + "if(t!==window.__eadLast){window.__eadLast=t;window.__eadAt=Date.now();return;}"
+                    + "if(!t)return;"
+                    + "if(Date.now()-window.__eadAt<1800)return;"
+                    + "if(window.__eadSent===t)return;"
+                    + "window.__eadSent=t;"
+                    + "try{window.EAD.onAiReply(t,list().length);}catch(e){}},1200);"
                     + "window.EAD.toast('EAgent 监听已启动');})()";
 
     /** 登录检测：出现输入框即视为已登录。 */
@@ -42,11 +53,19 @@ public final class PromptKit {
 
     /** 点网页自带的附件/上传按钮（trusted click），触发系统文件选择器。 */
     public static final String UPLOAD_JS =
-            "(function(){var bs=document.querySelectorAll('button,[role=button],label');var best=null;"
+            "(function(){"
+                    + "var fi=document.querySelectorAll('input[type=file]');"
+                    + "if(fi.length){var f=fi[fi.length-1];"
+                    + "if(!f.disabled){try{f.click();"
+                    + "window.EAD.toast('上传入口: file-input');return true;}catch(e){}}}"
+                    + "var bs=document.querySelectorAll('button,[role=button],label');"
+                    + "var best=null,lab0='';"
                     + "for(var i=0;i<bs.length;i++){var b=bs[i];"
                     + "var lab=((b.getAttribute('aria-label')||'')+' '+(b.title||'')+' '+(b.className||'')).toLowerCase();"
-                    + "if(/上传|附件|添加|attach|upload|file|paperclip|plus/.test(lab)){best=b;break;}}"
-                    + "if(best){best.click();return true;}window.EAD.toast('未找到上传按钮');return false;})()";
+                    + "if(/上传|附件|添加|attach|upload|paperclip/.test(lab)){best=b;lab0=lab.substring(0,40);break;}}"
+                    + "if(best){try{best.click();"
+                    + "window.EAD.toast('上传入口: 按钮 '+lab0);return true;}catch(e){}}"
+                    + "window.EAD.toast('未找到上传入口（input 与按钮都没命中）');return false;})()";
 
     /** 点发送按钮（trusted click），作为回车失败后的第三级兜底。 */
     public static final String CLICK_SEND_JS =
@@ -59,9 +78,43 @@ public final class PromptKit {
                     + "if(s>sc){sc=s;best=b;}}"
                     + "if(sc>0&&best){best.click();return true;}return false;})()";
 
+    /** 取上传入口的视口坐标（CSS 像素）与文档宽高，供原生触摸兜底。 */
+    public static final String UPLOAD_RECT_JS =
+            "(function(){var t=null;"
+                    + "var fi=document.querySelectorAll('input[type=file]');"
+                    + "if(fi.length&&!fi[fi.length-1].disabled)t=fi[fi.length-1];"
+                    + "if(!t){var bs=document.querySelectorAll('button,[role=button],label');"
+                    + "for(var i=0;i<bs.length;i++){var b=bs[i];"
+                    + "var lab=((b.getAttribute('aria-label')||'')+' '+(b.title||'')+' '+(b.className||'')).toLowerCase();"
+                    + "if(/上传|附件|添加|attach|upload|paperclip/.test(lab)){t=b;break;}}}"
+                    + "if(!t)return 'null';"
+                    + "var r=t.getBoundingClientRect();"
+                    + "if(!r||r.width<=0||r.height<=0)return 'null';"
+                    + "var de=document.documentElement;"
+                    + "return (r.left+r.width/2)+','+(r.top+r.height/2)+','+de.clientWidth+','+de.clientHeight;"
+                    + "})()";
+
+    /** Beta 自动发送：用实测选择器定位发送键后点击，并回报成功与否。 */
+    public static final String SEND_BETA_JS =
+            "(function(){"
+                    + "function btn(){var c=document.querySelector('.bf38813a')||document.body;"
+                    + "var s=c.querySelectorAll('[role=button],button');"
+                    + "for(var i=0;i<s.length;i++){var b=s[i];"
+                    + "if(b.classList&&b.classList.contains('ds-button--primary')&&b.classList.contains('ds-button--circle'))return b;}"
+                    + "return null;}"
+                    + "var b=btn();"
+                    + "if(!b){window.EAD.onBetaSend(false);return;}"
+                    + "if(b.classList.contains('ds-button--disabled')){window.EAD.onBetaSend(false);return;}"
+                    + "try{b.click();}catch(e){}"
+                    + "setTimeout(function(){var bb=btn();"
+                    + "var ok=!!(bb&&bb.classList&&bb.classList.contains('ds-button--disabled'));"
+                    + "window.EAD.onBetaSend(ok);},900);"
+                    + "})()";
+
     /** 让网页输入框获焦（配合右上角键盘键，不主动弹输入法）。 */
     public static final String FOCUS_JS =
-            "(function(){function find(){var t=document.getElementById('chat-input');"
+            "(function(){function find(){var t=document.querySelector('textarea[name=search]');"
+                    + "if(!t)t=document.getElementById('chat-input');"
                     + "if(t&&t.tagName==='TEXTAREA')return t;"
                     + "var c=document.querySelectorAll('div[contenteditable=true]');if(c.length)return c[c.length-1];"
                     + "var a=document.querySelectorAll('textarea');return a.length?a[a.length-1]:null;}"
@@ -71,7 +124,8 @@ public final class PromptKit {
     /** 只填值、不发送、不抢焦点——发送由用户手动点网页按钮。 */
     public static String sendJs(String text) {
         return "(function(){var txt=" + org.json.JSONObject.quote(text) + ";"
-                + "function find(){var t=document.getElementById('chat-input');"
+                + "function find(){var t=document.querySelector('textarea[name=search]');"
+                + "if(!t)t=document.getElementById('chat-input');"
                 + "if(t&&t.tagName==='TEXTAREA')return t;"
                 + "var c=document.querySelectorAll('div[contenteditable=true]');if(c.length)return c[c.length-1];"
                 + "var a=document.querySelectorAll('textarea');return a.length?a[a.length-1]:null;}"
@@ -85,8 +139,10 @@ public final class PromptKit {
 
     public static final String READ_JS =
             "(function(){var e=document.querySelectorAll('.ds-markdown,div[class*=markdown]');"
-                    + "if(!e||!e.length)return '';var n=e[e.length-1];"
-                    + "return (n.innerText||n.textContent||'').trim();})()";
+                    + "if(!e||!e.length)return '';var n=e[e.length-1].cloneNode(true);"
+                    + "var bad=n.querySelectorAll('.ds-think-content,[class*=think],[class*=reason],[class*=cot]');"
+                    + "for(var i=0;i<bad.length;i++){if(bad[i].parentNode)bad[i].parentNode.removeChild(bad[i]);}"
+                    + "return ((n.innerText||n.textContent||'')+'').trim();})()";
 
     public static String system(String workDir, String tmpDir, String shotDir) {
         return "# System Prompt\n"
@@ -110,12 +166,12 @@ public final class PromptKit {
                 + "  - 1.3 脚本必须轻量级，禁止笨重/慢返回/返回信息超级多。\n"
                 + "- 2. 识别头与识别尾之间的全部内容会被写入临时 .sh 并在 root shell 中执行，stdin 已隔离；不要把识别头/尾行写进脚本正文。\n"
                 + "- 3. 输出示例：\n"
-                + "```\n# EAgent_ps_识别头_完全保留本行注释\n"
+                + "```\n# EAgent_sh_识别头_完全保留本行注释\n"
                 + "# 操作：读取/sdcard/1.txt：/sdcard/1.txt\n"
                 + "# 描述：用户要看该文件前20行，验收标准为能正确输出行内容与行数。本代码只读取该文件，不修改任何东西。\n"
                 + "# ---\n"
                 + "head -n 20 /sdcard/1.txt; echo \"DONE: $(wc -l < /sdcard/1.txt)\"\n"
-                + "# EAgent_ps_识别尾_完全保留本行注释\n```\n\n"
+                + "# EAgent_sh_识别尾_完全保留本行注释\n```\n\n"
                 + "** 工具：截图 **\n"
                 + "- 1. 返回手机屏幕截图（root screencap）。不要改参数1。\n"
                 + "- 2. 图片需用户手动作为附件发送，你只负责拿到并告知路径。\n"
@@ -165,6 +221,9 @@ public final class PromptKit {
                 + "- 本轮要调工具：回复只允许 1 个代码块，代码块外不得出现任何字符（包括说明、空行文字）。\n"
                 + "- 本轮不调工具：只输出一句结论，不得输出任何识别头。\n"
                 + "- 识别头行与识别尾行必须成对出现、各自独占一行，不得写进脚本正文。\n"
+                + "- 严禁在思考/推理块里写识别头、识别尾或任何格式预览、示例块：工具会把它们当成真实调用执行，导致提前执行或误判。思考中只用自然语言描述计划。\n"
+                + "- 工具结果超过 4000 字时，本地会自动截断回填并把全文写成 .txt 作为附件上传，回填里会给出文件路径；直接读附件内容，不要重跑原命令。\n"
+                + "- 截图自动保存到 /sdcard/Pictures/EAD 并自动作为附件上传，不需要提醒用户手动发送。\n"
                 + "- 单次发送建议 ≤3000 字；需要更多信息时用 head/tail 分段取。\n\n"
                 + "## 现在：\n"
                 + "- 调用工具_查看工作目录树 → 仅询问用户的任务目标 → 用户提出要求 → 问用户想实现什么效果(A/B/C) → 向用户描述`你想要XXX，实现XXX目的，对吧？确认继续/补充` → 规划 → 拆分多轮_单步调用工具 → 识别工具返回结果 → 向用户交付最终成品。\n"
@@ -190,10 +249,10 @@ public final class PromptKit {
                 + "  1.2 大文件用 `head -c N`、`sed -n '1,50p'`；不要对整个分区做 `-r` 递归扫描。\n"
                 + "  1.3 脚本必须轻量级，禁止笨重/慢返回/返回信息超级多。\n"
                 + "2. 命令在常驻 root shell 中执行，工作目录与环境变量跨命令保留（与 Windows 版差异）。\n"
-                + "```\n# EAgent_ps_识别头_完全保留本行注释\n"
+                + "```\n# EAgent_sh_识别头_完全保留本行注释\n"
                 + "# 操作：<删除/读取/修改..><文件/目录/...>：<绝对路径>\n"
                 + "# 描述：<用户遇到XXX问题，需要XXX，实现XXX结果，验收标准为XXX。本代码<读取/修改/删除>XXX，实现XXX目的。>\n"
-                + "# ---\n<你的 sh 脚本...>\n# EAgent_ps_识别尾_完全保留本行注释\n```\n\n"
+                + "# ---\n<你的 sh 脚本...>\n# EAgent_sh_识别尾_完全保留本行注释\n```\n\n"
                 + "** 工具：截图 **\n"
                 + "1. 返回手机屏幕截图（root screencap）。不要改参数1。\n"
                 + "2. 图片不会自动进入对话，需提醒用户手动作为附件发送。\n"

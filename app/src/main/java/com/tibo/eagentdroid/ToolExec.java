@@ -61,7 +61,7 @@ public final class ToolExec {
         return p != null && p.startsWith("/") && !p.matches(".*[;&|`><$\\r\\n].*");
     }
 
-    public static Term.Result run(Context ctx, Term term, Tools.Call c) {
+    public static Term.Result run(Context ctx, Term term, Tools.Call c, String shotDir) {
         if (c == null || c.tool == null) return r(1, "空调用");
         String a = c.arg == null ? "" : c.arg.trim();
         try {
@@ -69,7 +69,7 @@ public final class ToolExec {
                 case "shell":
                     return shellRun(term, a);
                 case "screencap":
-                    return screencap(term, filesDir(ctx));
+                    return screencap(ctx, term, shotDir);
                 case "win":
                     if (!a.matches("[A-Za-z0-9._]+")) return r(1, "参数应为包名");
                     return term.run("monkey -p " + a + " -c android.intent.category.LAUNCHER 1");
@@ -106,26 +106,36 @@ public final class ToolExec {
         return term.run(cmd);
     }
 
-    private static Term.Result screencap(Term term, File dir) {
+    /** 截图直接落到人类能看见的相册目录（可用 root 写），并由主界面自动作为附件上传。 */
+    private static Term.Result screencap(Context ctx, Term term, String shotDir) {
+        String dir = (shotDir == null || shotDir.trim().isEmpty())
+                ? "/sdcard/Pictures/EAD" : shotDir.trim();
         String name = "截图_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date()) + ".png";
-        File f = new File(dir, name);
-        String tmp = "/data/local/tmp/ead_ws/" + name;
-        Term.Result x;
+        String path = dir.endsWith("/") ? dir + name : dir + "/" + name;
         try {
-            x = term.run("screencap -p " + shQuote(tmp));
-            if (x.code != 0) return x;
-            Term.Result cp = term.run("cp -f " + shQuote(tmp) + " " + shQuote(f.getAbsolutePath())
-                    + " && ls -l " + shQuote(f.getAbsolutePath()));
-            if (cp.code == 0) {
-                cp.out = "已保存: " + f.getAbsolutePath()
-                        + "\n(请提醒用户手动把该图片作为附件发送)" + "\n" + cp.out;
-                return cp;
+            Term.Result x = term.run("mkdir -p " + shQuote(dir)
+                    + " && screencap -p " + shQuote(path)
+                    + " && ls -l " + shQuote(path));
+            if (x.code != 0) {
+                String tmp = "/data/local/tmp/ead_ws/" + name;
+                x = term.run("mkdir -p /data/local/tmp/ead_ws && screencap -p " + shQuote(tmp));
+                if (x.code != 0) return x;
+                path = tmp;
             }
+            // 上传需要本应用可读的副本（/sdcard 在无存储权限下只能由 root 写）
+            String up = new File(filesDir(ctx), name).getAbsolutePath();
+            Term.Result cp = term.run("cp -f " + shQuote(path) + " " + shQuote(up)
+                    + " && chmod 644 " + shQuote(up));
+            StringBuilder sb = new StringBuilder();
+            sb.append("已保存: ").append(path).append("\n");
+            if (cp.code == 0) sb.append("上传副本: ").append(up).append("\n");
+            else sb.append("(可上传副本创建失败，将只回填文本)\n");
+            sb.append("(应用会自动把图作为附件上传，无需用户手动发送)\n").append(x.out);
+            x.out = sb.toString();
+            return x;
         } catch (Exception e) {
             return r(1, "截屏失败: " + e.getMessage());
         }
-        x.out = "已保存: " + tmp + "\n(受限存储，请用户用文件管理器/root 取图后作为附件发送)";
-        return x;
     }
 
     private static Term.Result mouse(Term term, String a) {
