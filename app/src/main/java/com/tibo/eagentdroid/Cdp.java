@@ -8,20 +8,73 @@ import org.json.JSONObject;
 
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.util.Random;
 
 /**
- * 极简 CDP 客户端：连 WebView 自带的 DevTools 抽象 socket，跑一条 Runtime.evaluate。
- * 仅用于验证「安卓也能走调试通道」，不影响现有逻辑。
+ * 极简 CDP 客户端。两条通道：
+ *   ① 直连抽象 socket webview_devtools_remote_<pid>（多数 ROM 被 SELinux 拦）
+ *   ② 走 root 中转：127.0.0.1:9333 → socat → 抽象 socket
+ * 只做 Runtime.evaluate 验证，不影响现有发送/上传逻辑。
  */
 public final class Cdp {
+
+    public static final int RELAY_PORT = 9333;
 
     private Cdp() {
     }
 
-    /** 返回一段可读的探测结果，直接丢到状态行。 */
-    /** 候选 socket 名：先按 pid，再扫 /proc/net/unix，最后试常见名。 */
-    private static java.util.List<String> candidates() {
+    private interface Link {
+        void close();
+    }
+
+    public static String selfTest() {
+        StringBuilder log = new StringBuilder();
+        // ① unix 直连
+        for (String n : unixNames()) {
+            try {
+                final LocalSocket s = new LocalSocket();
+                s.connect(new LocalSocketAddress(n, LocalSocketAddress.Namespace.ABSTRACT));
+                s.setSoTimeout(4000);
+                String r = run(s.getInputStream(), s.getOutputStream(), new Link() {
+                    @Override
+                    public void close() {
+                        try {
+                            s.close();
+                        } catch (Exception ignored) {
+                        }
+                    }
+                });
+                if (r.startsWith("OK")) return "CDP 可用 ✔ [unix " + n + "] " + r.substring(2);
+                log.append(n).append(": ").append(r).append("\n");
+            } catch (Exception e) {
+                log.append(n).append(": ").append(e.getClass().getSimpleName())
+                        .append(" ").append(e.getMessage()).append("\n");
+            }
+        }
+        // ② root 中转 TCP
+        try {
+            Socket s = new Socket();
+            s.connect(new InetSocketAddress("127.0.0.1", RELAY_PORT), 2500);
+            s.setSoTimeout(4000);
+            String r = run(s.getInputStream(), s.getOutputStream(), new Link() {
+                @Override
+                public void close() {
+                }
+            });
+            if (r.startsWith("OK")) return "CDP 可用 ✔ [relay " + RELAY_PORT + "] " + r.substring(2);
+            log.append("relay: ").append(r).append("\n");
+        } catch (Exception e) {
+            log.append("relay 127.0.0.1:").append(RELAY_PORT).append(": ")
+                    .append(e.getClass().getSimpleName()).append(" ")
+                    .append(e.getMessage()).append("\n");
+        }
+        String t = log.toString().trim();
+        return "CDP 全部失败\n" + (t.length() > 600 ? t.substring(t.length() - 600) : t);
+    }
+
+    private static java.util.List<String> unixNames() {
         java.util.LinkedHashSet<String> set = new java.util.LinkedHashSet<>();
         set.add("webview_devtools_remote_" + android.os.Process.myPid());
         try {
@@ -37,33 +90,15 @@ public final class Cdp {
             br.close();
         } catch (Exception ignored) {
         }
-        set.add("chrome_devtools_remote");
         return new java.util.ArrayList<>(set);
     }
 
-    public static String selfTest() {
-        java.util.List<String> names = candidates();
-        String name = names.get(0);
-        Exception last = null;
-        for (String n : names) {
-            String r = tryOne(n);
-            if (r.startsWith("CDP: 可用")) return "[" + n + "] " + r;
-            last = new Exception(r.replace("\n", " / "));
-        }
-        return "CDP: 全部候选失败（候选: " + names + "）\n最后: "
-                + (last == null ? "无" : last.getMessage());
-    }
-
-    private static String tryOne(String name) {
+    /** 返回 "OK…" 或错误说明。 */
+    private static String run(InputStream in, OutputStream out, Link link) {
         try {
-            String page = discoverPage(name);
-            if (page == null) return "CDP: /json/list 里没有调试页（WebView 可能未开启调试）";
-            LocalSocket ws = new LocalSocket();
-            ws.connect(new LocalSocketAddress(name, LocalSocketAddress.Namespace.ABSTRACT));
-            ws.setSoTimeout(4000);
-            InputStream in = ws.getInputStream();
-            OutputStream out = ws.getOutputStream();
-            if (!handshake(out, in, page)) return "CDP: WebSocket 握手失败";
+            String page = discoverPage(in, out);
+            if (page == null) return "没有调试页";
+            if (!handshake(out, in, page)) return "WS 握手失败";
             sendFrame(out, "{\"id\":1,\"method\":\"Runtime.evaluate\","
                     + "\"params\":{\"expression\":\"1+1\",\"returnByValue\":true}}");
             long deadline = System.currentTimeMillis() + 4000;
@@ -71,17 +106,14 @@ public final class Cdp {
                 String msg = readFrame(in);
                 if (msg == null) break;
                 if (msg.contains("\"id\":1")) {
-                    ws.close();
-                    boolean ok = msg.contains("\"value\":2");
-                    return (ok ? "CDP: 可用 ✔（Runtime.evaluate 返回 2）" : "CDP: 已连上，返回异常")
-                            + "\n" + clip(msg);
+                    return msg.contains("\"value\":2") ? "OK（1+1=2）" : "应答异常 " + clip(msg);
                 }
             }
-            ws.close();
-            return "CDP: 握手成功但没收到应答";
+            return "无应答";
         } catch (Exception e) {
-            return "CDP: 失败 " + e.getClass().getSimpleName() + ": " + e.getMessage()
-                    + "（socket: " + name + "）";
+            return e.getClass().getSimpleName() + " " + e.getMessage();
+        } finally {
+            link.close();
         }
     }
 
@@ -89,15 +121,10 @@ public final class Cdp {
         return s.length() > 160 ? s.substring(0, 160) : s;
     }
 
-    private static String discoverPage(String name) throws Exception {
-        LocalSocket s = new LocalSocket();
-        s.connect(new LocalSocketAddress(name, LocalSocketAddress.Namespace.ABSTRACT));
-        s.setSoTimeout(3000);
-        OutputStream out = s.getOutputStream();
+    private static String discoverPage(InputStream in, OutputStream out) throws Exception {
         out.write(("GET /json/list HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
                 .getBytes("UTF-8"));
         out.flush();
-        InputStream in = s.getInputStream();
         StringBuilder sb = new StringBuilder();
         byte[] buf = new byte[4096];
         int n;
@@ -105,7 +132,6 @@ public final class Cdp {
             sb.append(new String(buf, 0, n, "UTF-8"));
             if (sb.length() > 60000) break;
         }
-        s.close();
         String resp = sb.toString();
         int body = resp.indexOf("[");
         if (body < 0) return null;
