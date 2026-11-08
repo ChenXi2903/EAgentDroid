@@ -1,4 +1,4 @@
-# EAgentDroid · 1.5-Test
+# EAgentDroid · 1.5.1-Test
 
 EAgent 原版形态的安卓移植：WebView 驱动 chat.deepseek.com，本地常驻 root shell 执行工具。
 本版**照 EAgent 原版协议**（识别头/识别尾 + 命名参数），与 Pro 版为两个独立包名。
