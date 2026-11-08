@@ -154,6 +154,8 @@ public class MainActivity extends AppCompatActivity {
     private void initApp() {
         // 开启 WebView 调试：CDP 通道的前提（用户已同意正式包也开启）
         android.webkit.WebView.setWebContentsDebuggingEnabled(true);
+        // 释放并安装自带中转（assets/eadrelay；缺失时静默跳过）
+        pool.execute(() -> Cdp.installRelay(this));
         shotDir = "/sdcard/Pictures/EAD";
         lastSysPrompt = PromptKit.system(workDir, TMP_DIR, shotDir);
         etPrompt.setText(lastSysPrompt);
@@ -662,8 +664,30 @@ public class MainActivity extends AppCompatActivity {
         return m.find() ? m.group(1) : null;
     }
 
-    /** 直接把文件交给网页 file chooser（不弹系统选择器），成功后回填文本。 */
+    /** 优先用 CDP 注入附加文件；失败退回 JS 点击 + 原生触摸。 */
     private void attachAndSend(File f, String block) {
+        if (f == null || !f.exists() || wv == null) {
+            sendToWebDelayed(block);
+            return;
+        }
+        final String path = f.getAbsolutePath();
+        setStatus("正在把文件交给网页（CDP）…");
+        pool.execute(() -> {
+            final String r = Cdp.attachFile(path);
+            runOnUiThread(() -> {
+                if (r != null && r.startsWith("OK")) {
+                    setStatus("已附加: " + f.getName() + " " + r);
+                    wv.postDelayed(() -> sendToWebDelayed(block), 1500);
+                } else {
+                    setStatus("CDP 附加失败（" + r + "），改用触点方案");
+                    legacyAttach(f, block);
+                }
+            });
+        });
+    }
+
+    /** 旧方案：JS 点击入口 + 原生触摸兜底，靠 file chooser 回填 Uri。 */
+    private void legacyAttach(File f, String block) {
         if (f == null || !f.exists() || wv == null) {
             sendToWebDelayed(block);
             return;

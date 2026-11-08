@@ -56,12 +56,16 @@ public final class Cdp {
         // ② root 中转（App 自己 su 拉起 socat，不靠用户手动）
         String relayMsg = startRelay();
         try {
-            Socket s = new Socket();
+            final Socket s = new Socket();
             s.connect(new InetSocketAddress("127.0.0.1", RELAY_PORT), 2500);
             s.setSoTimeout(4000);
             String r = run(s.getInputStream(), s.getOutputStream(), new Link() {
                 @Override
                 public void close() {
+                    try {
+                        s.close();
+                    } catch (Exception ignored) {
+                    }
                 }
             });
             if (r.startsWith("OK")) return "CDP 可用 ✔ [relay " + RELAY_PORT + "] " + r.substring(2);
@@ -75,15 +79,58 @@ public final class Cdp {
         return "CDP 全部失败\n" + (t.length() > 600 ? t.substring(t.length() - 600) : t);
     }
 
+    /**
+     * 把 APK assets 里的 eadrelay 释放到 filesDir，再用 su 安装到 /data/local/tmp/ead_ws/bin。
+     * assets 里没有该文件时静默跳过（兼容未打包二进制的情况）。
+     */
+    public static void installRelay(android.content.Context ctx) {
+        if (ctx == null) return;
+        java.io.File local = new java.io.File(ctx.getFilesDir(), "eadrelay");
+        try {
+            java.io.InputStream is = ctx.getAssets().open("eadrelay");
+            java.io.FileOutputStream fo = new java.io.FileOutputStream(local);
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = is.read(buf)) > 0) fo.write(buf, 0, n);
+            fo.close();
+            is.close();
+        } catch (Exception e) {
+            return; // 没打进 assets，安静退出
+        }
+        try {
+            local.setExecutable(true, false);
+        } catch (Exception ignored) {
+        }
+        try {
+            String cmd = "mkdir -p /data/local/tmp/ead_ws/bin && cp -f "
+                    + local.getAbsolutePath() + " " + RELAY_BIN
+                    + " && chmod 755 " + RELAY_BIN + " && echo INSTALLED";
+            Process p = new ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start();
+            p.waitFor();
+        } catch (Exception ignored) {
+        }
+    }
+
     private static final String SOCAT = "/data/data/com.termux/files/usr/bin/socat";
+    /** 自带的静态中转（tools/eadrelay.c 编译后放这里），优先于 socat。 */
+    public static final String RELAY_BIN = "/data/local/tmp/ead_ws/bin/eadrelay";
 
     /** 用 root 后台拉起 socat 中转，返回状态说明。 */
     private static String startRelay() {
         String cmd = "P=$(ps -A | grep com.tibo.eagentdroid | grep -v grep | tr -s ' ' | cut -d' ' -f1 | head -1); "
                 + "[ -z \"$P\" ] && P=" + android.os.Process.myPid() + "; "
                 + "pkill -f 'TCP-LISTEN:" + RELAY_PORT + "' 2>/dev/null; "
+                + "pkill -f eadrelay 2>/dev/null; "
+                + "mkdir -p /data/local/tmp/ead_ws/bin; "
+                + "if [ ! -x " + RELAY_BIN + " ] && [ -f /sdcard/Download/eadrelay ]; then "
+                + "cp -f /sdcard/Download/eadrelay " + RELAY_BIN + " && chmod 755 " + RELAY_BIN + "; fi; "
+                + "if [ -x " + RELAY_BIN + " ]; then "
+                + "( " + RELAY_BIN + " webview_devtools_remote_$P >/dev/null 2>&1 & ) ; sleep 1; echo "
+                + "\"started relay bin $P\"; "
+                + "else "
                 + "( " + SOCAT + " TCP-LISTEN:" + RELAY_PORT + ",fork,reuseaddr "
-                + "ABSTRACT-CONNECT:webview_devtools_remote_$P >/dev/null 2>&1 & ) ; sleep 1; echo started $P";
+                + "ABSTRACT-CONNECT:webview_devtools_remote_$P >/dev/null 2>&1 & ) ; sleep 1; echo "
+                + "\"started socat $P\"; fi";
         try {
             Process p = new ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start();
             java.io.BufferedReader br = new java.io.BufferedReader(
@@ -96,6 +143,89 @@ public final class Cdp {
         } catch (Exception e) {
             return "relay 启动失败: " + e.getMessage();
         }
+    }
+
+    // ---------- 会话式 CDP（上传用） ----------
+    private static final class Session {
+        final Socket sock;
+        final InputStream in;
+        final OutputStream out;
+        int id = 0;
+
+        Session(Socket s) throws Exception {
+            sock = s;
+            in = s.getInputStream();
+            out = s.getOutputStream();
+        }
+
+        JSONObject call(String method, JSONObject params) throws Exception {
+            int myId = ++id;
+            JSONObject req = new JSONObject();
+            req.put("id", myId);
+            req.put("method", method);
+            req.put("params", params == null ? new JSONObject() : params);
+            sendFrame(out, req.toString());
+            long deadline = System.currentTimeMillis() + 9000;
+            while (System.currentTimeMillis() < deadline) {
+                String msg = readFrame(in);
+                if (msg == null) break;
+                JSONObject o = new JSONObject(msg);
+                if (o.optInt("id", -1) == myId) return o;
+            }
+            throw new Exception("no reply: " + method);
+        }
+
+        void close() {
+            try {
+                sock.close();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    /** 用 CDP 直接把本地文件塞进网页的 file input（绕开手势与文件选择器）。 */
+    public static String attachFile(String path) {
+        startRelay();
+        Session ss = null;
+        try {
+            Socket s = new Socket();
+            s.connect(new InetSocketAddress("127.0.0.1", RELAY_PORT), 3000);
+            s.setSoTimeout(9000);
+            ss = new Session(s);
+            String page = discoverPage(ss.in, ss.out);
+            if (page == null) return "没有调试页";
+            if (!handshake(ss.out, ss.in, page)) return "WS 握手失败";
+            ss.call("DOM.enable", null);
+            JSONObject doc = ss.call("DOM.getDocument", new JSONObject().put("depth", 1));
+            int rootId = doc.getJSONObject("result").getJSONObject("root").getInt("nodeId");
+            int nodeId = queryFileInput(ss, rootId);
+            if (nodeId == 0) {
+                ss.call("Runtime.evaluate", new JSONObject().put("expression", PromptKit.UPLOAD_JS));
+                Thread.sleep(700);
+                nodeId = queryFileInput(ss, rootId);
+            }
+            if (nodeId == 0) return "找不到 input[type=file]";
+            JSONArray files = new JSONArray();
+            files.put(path);
+            ss.call("DOM.setFileInputFiles", new JSONObject().put("nodeId", nodeId).put("files", files));
+            Thread.sleep(400);
+            JSONObject chk = ss.call("Runtime.evaluate", new JSONObject()
+                    .put("expression", "(function(){var f=document.querySelectorAll('input[type=file]');"
+                            + "return f.length?f[0].files.length:-1;})()")
+                    .put("returnByValue", true));
+            int cnt = chk.getJSONObject("result").getJSONObject("result").optInt("value", -1);
+            return cnt > 0 ? "OK（已附加 " + cnt + " 个文件）" : "已下发，但未确认 files 数量";
+        } catch (Exception e) {
+            return e.getClass().getSimpleName() + " " + e.getMessage();
+        } finally {
+            if (ss != null) ss.close();
+        }
+    }
+
+    private static int queryFileInput(Session ss, int rootId) throws Exception {
+        JSONObject q = ss.call("DOM.querySelector", new JSONObject()
+                .put("nodeId", rootId).put("selector", "input[type=file]"));
+        return q.getJSONObject("result").optInt("nodeId", 0);
     }
 
     private static java.util.List<String> unixNames() {
@@ -259,6 +389,8 @@ public final class Cdp {
             len = 0;
             for (int i = 0; i < 8; i++) len = (len << 8) | in.read();
         }
+        // 防恶意/损坏帧：长度为负或超 8MB 直接断开，避免 NegativeArraySize / OOM
+        if (len < 0 || len > 8L * 1024 * 1024) return null;
         byte[] mask = new byte[4];
         if (masked) {
             for (int i = 0; i < 4; i++) mask[i] = (byte) in.read();

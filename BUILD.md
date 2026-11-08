@@ -65,14 +65,14 @@ Android Studio 路线：`File → Open → 选 EAgentDroid 根目录（含 setti
 
 ## 6. 签名
 
-本工程**不附带任何密钥**。发布时自行准备 keystore：把 `keystore.properties.example` 拷为 `keystore.properties` 并填入自己的值（该文件已被 .gitignore 忽略）。密码为空或文件不存在时自动跳过签名，仍可编出 unsigned APK。
+工程根目录已放 `chenxi.jks` + `keystore.properties`（`storePassword=zyc1226`、`keyAlias=chenxi`、`keyPassword=zyc12261226`）。
 
 ```bash
 ./gradlew :app:assembleRelease
 # 产物：app/build/outputs/apk/release/app-release.apk（你的证书已签）
 ```
 
-若报 `Alias ... does not exist` → 别名与 keystore 中的不一致；
+若报 `Alias ... does not exist` → 别名错（本工程为 `chenxi`）；
 `password was incorrect` → 密码错；
 覆盖安装旧包报签名冲突 → 先卸载。
 
@@ -98,4 +98,42 @@ Android Studio 路线：`File → Open → 选 EAgentDroid 根目录（含 setti
 APK 体积 ≈ 2.5～3.5 MB（含 240KB 图标），无 .so
 装机：su 授权 → 设定页【开始】发提示词 → 对话页发需求 → 审核/自动执行 → 结果回填
 日志出现“EAgent 监听已启动”且工具执行有回显 = 通过
+```
+
+---
+
+## 9. 自带中转二进制 `assets/eadrelay`
+
+**它是什么**：CDP 上传通道需要 root 侧把 `TCP 127.0.0.1:9333` 转发进
+`@webview_devtools_remote_<pid>`。App 自己在 untrusted_app 域连不上（SELinux），
+所以用这个静态二进制做中转。
+
+**位置**：`app/src/main/assets/eadrelay`（aarch64 静态可执行，约 1 MB）
+
+**禁止**：
+```
+· 删除该文件（会让自动上传退化为 Termux socat 方案）
+· 用动态链接版本替换（脱离 Termux 前缀就跑不起来）
+· 改名（App 里写死读 assets/eadrelay）
+```
+
+**需要重建时**（源码 `tools/eadrelay.c`）：
+```bash
+NDK=<你的 NDK 目录>
+$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang \
+    -O2 -static -o eadrelay tools/eadrelay.c
+file eadrelay        # 必须输出 statically linked
+```
+
+**运行期行为**：App 首次启动把 assets 里的二进制复制到 filesDir，
+再用 `su` 安装到 `/data/local/tmp/ead_ws/bin/eadrelay` 并 `chmod 755`。
+之后每次 CDP 调用前会 `pkill` 旧进程再拉起。
+
+**兼容性**：静态链接，只依赖内核 syscall → Android 7.0+ / arm64 通用；
+32 位 armeabi-v7a 设备需要另编一份，目前未提供。
+
+**只编二进制、不发布 debug 包**：
+```
+发布请务必用  ./gradlew :app:assembleRelease
+不要用 assembleDebug 的产物对外分发（debug 签名 + debuggable=true，不安全）
 ```
