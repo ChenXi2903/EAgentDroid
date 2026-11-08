@@ -87,6 +87,8 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // 必须在任何 WebView 实例创建前开启，否则 devtools socket 不会出现
+        android.webkit.WebView.setWebContentsDebuggingEnabled(true);
         setContentView(R.layout.activity_main);
         bindViews();
         root.post(() -> new Thread(() -> {

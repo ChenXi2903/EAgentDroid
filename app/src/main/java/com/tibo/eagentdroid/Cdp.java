@@ -20,9 +20,41 @@ public final class Cdp {
     }
 
     /** 返回一段可读的探测结果，直接丢到状态行。 */
+    /** 候选 socket 名：先按 pid，再扫 /proc/net/unix，最后试常见名。 */
+    private static java.util.List<String> candidates() {
+        java.util.LinkedHashSet<String> set = new java.util.LinkedHashSet<>();
+        set.add("webview_devtools_remote_" + android.os.Process.myPid());
+        try {
+            java.io.BufferedReader br = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(new java.io.FileInputStream("/proc/net/unix")));
+            String l;
+            while ((l = br.readLine()) != null) {
+                int at = l.indexOf('@');
+                if (at < 0) continue;
+                String nm = l.substring(at + 1).trim();
+                if (nm.contains("devtools_remote")) set.add(nm);
+            }
+            br.close();
+        } catch (Exception ignored) {
+        }
+        set.add("chrome_devtools_remote");
+        return new java.util.ArrayList<>(set);
+    }
+
     public static String selfTest() {
-        int pid = android.os.Process.myPid();
-        String name = "webview_devtools_remote_" + pid;
+        java.util.List<String> names = candidates();
+        String name = names.get(0);
+        Exception last = null;
+        for (String n : names) {
+            String r = tryOne(n);
+            if (r.startsWith("CDP: 可用")) return "[" + n + "] " + r;
+            last = new Exception(r.replace("\n", " / "));
+        }
+        return "CDP: 全部候选失败（候选: " + names + "）\n最后: "
+                + (last == null ? "无" : last.getMessage());
+    }
+
+    private static String tryOne(String name) {
         try {
             String page = discoverPage(name);
             if (page == null) return "CDP: /json/list 里没有调试页（WebView 可能未开启调试）";
@@ -49,7 +81,7 @@ public final class Cdp {
             return "CDP: 握手成功但没收到应答";
         } catch (Exception e) {
             return "CDP: 失败 " + e.getClass().getSimpleName() + ": " + e.getMessage()
-                    + "\n(socket: " + name + ")";
+                    + "（socket: " + name + "）";
         }
     }
 
