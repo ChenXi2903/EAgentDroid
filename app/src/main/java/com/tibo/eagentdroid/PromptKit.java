@@ -9,6 +9,7 @@ public final class PromptKit {
     public static final String SH_HEAD_LEGACY = "EAgent_ps_识别头";
     public static final String JPG_HEAD = "EAgent_getjpg_识别头";
     public static final String WIN_HEAD = "EAgent_窗口_置顶_识别头";
+    public static final String TIMEOUT_HEAD = "EAgent_timeout_识别头";
     public static final String MOUSE_HEAD = "EAgent_mouse_simulate_识别头";
     public static final String KEY_HEAD = "EAgent_keyboard_识别头";
     public static final String FILE_HEAD = "EAgent_getfile_识别头";
@@ -24,10 +25,18 @@ public final class PromptKit {
             "(function(){if(window.__eadPoll)return;window.__eadPoll=1;"
                     + "function list(){return document.querySelectorAll('.ds-markdown,div[class*=markdown]');}"
                     + "function nodeOf(){var e=list();if(!e||!e.length)return null;return e[e.length-1];}"
+                    + "function dump(n){var NL=String.fromCharCode(10),s='';"
+                    + "for(var k=0;k<n.childNodes.length;k++){var x=n.childNodes[k];"
+                    + "if(x.nodeType===3){s+=x.nodeValue;}"
+                    + "else if(x.nodeType===1){var tg=x.tagName;"
+                    + "if(tg==='BR'){s+=NL;}"
+                    + "else{var blk=/^(DIV|P|LI|PRE|TR|H[1-6]|BLOCKQUOTE)$/.test(tg);"
+                    + "if(blk&&s&&s.charAt(s.length-1)!==NL)s+=NL;s+=dump(x);"
+                    + "if(blk&&s.charAt(s.length-1)!==NL)s+=NL;}}}return s;}"
                     + "function textOf(n){if(!n)return '';var c=n.cloneNode(true);"
                     + "var bad=c.querySelectorAll('.ds-think-content,[class*=think],[class*=reason],[class*=cot]');"
                     + "for(var i=0;i<bad.length;i++){if(bad[i].parentNode)bad[i].parentNode.removeChild(bad[i]);}"
-                    + "return ((c.innerText||c.textContent||'')+'').trim();}"
+                    + "return dump(c).trim();}"
                     + "window.__eadLast='';window.__eadAt=0;"
                     + "window.__eadSent=textOf(nodeOf())||'';"
                     + "setInterval(function(){var t=textOf(nodeOf());"
@@ -142,7 +151,15 @@ public final class PromptKit {
                     + "if(!e||!e.length)return '';var n=e[e.length-1].cloneNode(true);"
                     + "var bad=n.querySelectorAll('.ds-think-content,[class*=think],[class*=reason],[class*=cot]');"
                     + "for(var i=0;i<bad.length;i++){if(bad[i].parentNode)bad[i].parentNode.removeChild(bad[i]);}"
-                    + "return ((n.innerText||n.textContent||'')+'').trim();})()";
+                    + "var NL=String.fromCharCode(10);"
+                    + "function dump(x){var s='';for(var k=0;k<x.childNodes.length;k++){var y=x.childNodes[k];"
+                    + "if(y.nodeType===3){s+=y.nodeValue;}"
+                    + "else if(y.nodeType===1){var tg=y.tagName;"
+                    + "if(tg==='BR'){s+=NL;}"
+                    + "else{var blk=/^(DIV|P|LI|PRE|TR|H[1-6]|BLOCKQUOTE)$/.test(tg);"
+                    + "if(blk&&s&&s.charAt(s.length-1)!==NL)s+=NL;s+=dump(y);"
+                    + "if(blk&&s.charAt(s.length-1)!==NL)s+=NL;}}}return s;}"
+                    + "return dump(n).trim();})()";
 
     public static String system(String workDir, String tmpDir, String shotDir) {
         return "# System Prompt\n"
@@ -224,6 +241,8 @@ public final class PromptKit {
                 + "- 严禁在思考/推理块里写识别头、识别尾或任何格式预览、示例块：工具会把它们当成真实调用执行，导致提前执行或误判。思考中只用自然语言描述计划。\n"
                 + "- 工具结果超过 4000 字时，本地会自动截断回填并把全文写成 .txt 作为附件上传，回填里会给出文件路径；直接读附件内容，不要重跑原命令。\n"
                 + "- 截图自动保存到 /sdcard/Pictures/EAD 并自动作为附件上传，不需要提醒用户手动发送。\n"
+                + "- 单条命令默认超时 300 秒；预计更久时先设置超时，输出示例：\n"
+                + "```\n# EAgent_timeout_识别头_完全保留本行注释\nagent_timeout_1_star(600)_agent_timeout_1_end\n# EAgent_timeout_识别尾_完全保留本行注释\n```\n"
                 + "- 单次发送建议 ≤3000 字；需要更多信息时用 head/tail 分段取。\n\n"
                 + "## 现在：\n"
                 + "- 调用工具_查看工作目录树 → 仅询问用户的任务目标 → 用户提出要求 → 问用户想实现什么效果(A/B/C) → 向用户描述`你想要XXX，实现XXX目的，对吧？确认继续/补充` → 规划 → 拆分多轮_单步调用工具 → 识别工具返回结果 → 向用户交付最终成品。\n"

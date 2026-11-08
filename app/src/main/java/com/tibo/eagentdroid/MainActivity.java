@@ -80,6 +80,9 @@ public class MainActivity extends AppCompatActivity {
     private File pendingAttach;
     private String pendingBlock;
     private boolean autoAttach = false;
+    /** 尚未发过任何消息前，不处理页面上的旧 AI 回复。 */
+    private boolean sentOnce = false;
+    private final ExecutorService histPool = Executors.newSingleThreadExecutor();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -147,6 +150,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void initApp() {
+        // 开启 WebView 调试：CDP 通道的前提（用户已同意正式包也开启）
+        android.webkit.WebView.setWebContentsDebuggingEnabled(true);
         shotDir = "/sdcard/Pictures/EAD";
         lastSysPrompt = PromptKit.system(workDir, TMP_DIR, shotDir);
         etPrompt.setText(lastSysPrompt);
@@ -224,6 +229,15 @@ public class MainActivity extends AppCompatActivity {
         btnKeyboard.setOnClickListener(v -> toggleKeyboard());
         btnChangeDir.setOnClickListener(v -> changeDirDialog());
         tvTitle.setOnClickListener(v -> showFullStatus());
+        // 长按状态行：CDP 探测（临时入口，后续会换成正式上传通道）
+        tvTitle.setOnLongClickListener(v -> {
+            setStatus("CDP 探测中…");
+            pool.execute(() -> {
+                String r = Cdp.selfTest();
+                runOnUiThread(() -> setStatus(r));
+            });
+            return true;
+        });
         btnDraft.setOnClickListener(v -> editDraft());
         btnWipe.setOnClickListener(v -> wipeData());
         btnPerm.setOnClickListener(v -> showPermissionCenter());
@@ -258,12 +272,57 @@ public class MainActivity extends AppCompatActivity {
     private void setStatus(String msg) {
         lastStatus = msg == null ? "" : msg;
         if (tvTitle != null) tvTitle.setText(lastStatus);
+        if (!lastStatus.isEmpty()) recordStatus(lastStatus);
     }
 
+    /** 状态历史：一行一条；超过 100 行删最早 20 行。 */
+    private void recordStatus(final String s) {
+        histPool.execute(() -> {
+            try {
+                File f = new File(ToolExec.filesDir(this), "status_history.txt");
+                java.util.List<String> lines = readHistory(f);
+                String ts = new java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.US)
+                        .format(new java.util.Date());
+                lines.add(ts + " " + s.replace("\n", " / "));
+                if (lines.size() > 100) {
+                    lines = new java.util.ArrayList<>(lines.subList(lines.size() - 80, lines.size()));
+                }
+                java.io.BufferedWriter bw = new java.io.BufferedWriter(new java.io.OutputStreamWriter(
+                        new java.io.FileOutputStream(f), "UTF-8"));
+                for (String l : lines) bw.write(l + "\n");
+                bw.close();
+            } catch (Exception ignored) {
+            }
+        });
+    }
+
+    private static java.util.List<String> readHistory(File f) {
+        java.util.List<String> lines = new java.util.ArrayList<>();
+        try {
+            if (!f.exists()) return lines;
+            java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(
+                    new java.io.FileInputStream(f), "UTF-8"));
+            String l;
+            while ((l = br.readLine()) != null) lines.add(l);
+            br.close();
+        } catch (Exception ignored) {
+        }
+        return lines;
+    }
+
+    /** 点状态行：当前全文 + 最近 30 条历史（历史落盘在 status_history.txt）。 */
     private void showFullStatus() {
+        java.util.List<String> hist = readHistory(new File(ToolExec.filesDir(this), "status_history.txt"));
+        StringBuilder sb = new StringBuilder();
+        sb.append("当前：").append(lastStatus == null || lastStatus.isEmpty() ? "（无）" : lastStatus);
+        if (!hist.isEmpty()) {
+            sb.append("\n\n—— 历史（最近 30 条）——\n");
+            int from = Math.max(0, hist.size() - 30);
+            for (int i = from; i < hist.size(); i++) sb.append(hist.get(i)).append('\n');
+        }
         new AlertDialog.Builder(this)
-                .setTitle("当前状态")
-                .setMessage(lastStatus == null || lastStatus.isEmpty() ? "（无）" : lastStatus)
+                .setTitle("状态 / 历史")
+                .setMessage(sb.toString())
                 .setPositiveButton("关闭", null)
                 .show();
     }
@@ -510,6 +569,8 @@ public class MainActivity extends AppCompatActivity {
                         toast("终端: " + cur.shellInfo());
                     }
                 });
+                final int to = term.timeoutSec();
+                runOnUiThread(() -> setStatus("工具执行中：" + c.tool + "（超时 " + to + "s）"));
                 final Term.Result r = ToolExec.run(MainActivity.this, term, c, shotDir);
                 final boolean longOut = r.out != null && r.out.length() > 4000;
                 final String outFile = longOut ? dumpOut(c.tool, r.out) : null;
@@ -703,7 +764,8 @@ public class MainActivity extends AppCompatActivity {
             int lo = lo0;
             int hi = hi0;
             if (hi < lo) hi = lo;
-            int sec = lo + (int) (Math.random() * (hi - lo + 1));
+            final int sec = lo + (int) (Math.random() * (hi - lo + 1));
+            runOnUiThread(() -> setStatus("延迟发送：等待 " + sec + " 秒"));
             try {
                 Thread.sleep(sec * 1000L);
             } catch (InterruptedException ignored) {
@@ -727,6 +789,8 @@ public class MainActivity extends AppCompatActivity {
     private void sendToWeb(String text) {
         if (wv == null || isFinishing() || isDestroyed() || text == null) return;
         lastSentHash = text.hashCode();
+        sentOnce = true;
+        setStatus("已发送，模型正在思考…");
         wv.evaluateJavascript(PromptKit.sendJs(text), null);
         // 发送后立刻取一次消息数作为基线：更早的消息全部视为历史，不执行
         wv.evaluateJavascript("document.querySelectorAll('.ds-markdown,div[class*=markdown]').length",
@@ -779,6 +843,8 @@ public class MainActivity extends AppCompatActivity {
             runOnUiThread(() -> {
                 String url = wv != null ? wv.getUrl() : null;
                 if (url == null || !url.contains("deepseek.com")) return;
+                // 0) 还没发过任何消息 → 页面上都是历史，一律不处理
+                if (!sentOnce) return;
                 // 1) 只认本次发送之后新增的消息（旧对话里的命令一律不执行）
                 // 注：网页用虚拟列表渲染，可见节点数可能不增（旧消息被回收），
                 // 所以只在“节点数反而变少”（页面被重置/回退）时拦截，累加由哈希去重负责

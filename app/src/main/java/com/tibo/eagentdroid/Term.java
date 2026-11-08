@@ -16,7 +16,16 @@ public final class Term {
 
     private static final int SOFT_CAP = 200000;
     private static final int KEEP = 8000;
-    private static final long CMD_TIMEOUT_MS = 120000L;
+    /** 默认 300s；AI 可通过“超时”工具自行调整。 */
+    private volatile long timeoutMs = 300000L;
+
+    public void setTimeoutSec(int sec) {
+        if (sec >= 5 && sec <= 3600) timeoutMs = sec * 1000L;
+    }
+
+    public int timeoutSec() {
+        return (int) (timeoutMs / 1000);
+    }
 
     private Process proc;
     private PrintStream stdin;
@@ -128,7 +137,7 @@ public final class Term {
 
         StringBuilder sb = new StringBuilder();
         StringBuilder cur = new StringBuilder();
-        long deadline = System.currentTimeMillis() + CMD_TIMEOUT_MS;
+        long deadline = System.currentTimeMillis() + timeoutMs;
         while (true) {
             if (!stdout.ready()) {
                 if (processDead()) break;

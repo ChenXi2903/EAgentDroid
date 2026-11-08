@@ -79,7 +79,7 @@
                         <Button android:id="@+id/btnChangeDir" android:layout_width="wrap_content" android:layout_height="wrap_content" android:minHeight="40dp" android:minWidth="0dp" android:paddingLeft="10dp" android:paddingRight="10dp" android:textSize="11sp" android:text="更改"/>
                     </LinearLayout>
 
-                    <CheckBox android:id="@+id/cbAutoSend" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:text="自动回复（Beta）填入后自动点发送"/>
+                    <CheckBox android:id="@+id/cbAutoSend" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:text="自动回复 填入后自动点发送"/>
 
                     <LinearLayout
                         android:layout_width="match_parent"

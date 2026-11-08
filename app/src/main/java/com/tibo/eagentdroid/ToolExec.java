@@ -53,6 +53,18 @@ public final class ToolExec {
         return s.length() > cap ? s.substring(0, cap) : s;
     }
 
+    /** AI 自行调整命令超时（秒，5~3600）。 */
+    private static Term.Result setTimeout(Term term, String a) {
+        try {
+            int sec = Integer.parseInt(a == null ? "" : a.replaceAll("[^0-9]", ""));
+            if (sec < 5 || sec > 3600) return r(1, "超时范围 5~3600 秒");
+            term.setTimeoutSec(sec);
+            return r(0, "已设置命令超时: " + sec + " 秒");
+        } catch (Exception e) {
+            return r(1, "参数应为秒数");
+        }
+    }
+
     private static String shQuote(String p) {
         return "'" + p.replace("'", "'\\''") + "'";
     }
@@ -68,6 +80,8 @@ public final class ToolExec {
             switch (c.tool) {
                 case "shell":
                     return shellRun(term, a);
+                case "timeout":
+                    return setTimeout(term, a);
                 case "screencap":
                     return screencap(ctx, term, shotDir);
                 case "win":

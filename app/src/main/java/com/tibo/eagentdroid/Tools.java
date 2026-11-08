@@ -20,6 +20,7 @@ public final class Tools {
     private static final String[][] MAP = {
             {PromptKit.SH_HEAD, "shell"},
             {PromptKit.SH_HEAD_LEGACY, "shell"},
+            {PromptKit.TIMEOUT_HEAD, "timeout"},
             {PromptKit.JPG_HEAD, "screencap"},
             {PromptKit.WIN_HEAD, "win"},
             {PromptKit.MOUSE_HEAD, "mouse"},
@@ -89,6 +90,11 @@ public final class Tools {
                     sb.append(l).append('\n');
                 }
                 return sb.toString().trim();
+            }
+            case "timeout": {
+                String v = param(body, "agent_timeout_1_star\\((.*?)\\)_agent_timeout_1_end", 1);
+                if (v.isEmpty()) v = firstInt(body);
+                return v;
             }
             case "screencap":
                 return "";
