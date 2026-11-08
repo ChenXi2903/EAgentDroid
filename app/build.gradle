@@ -20,8 +20,8 @@ android {
         applicationId 'com.tibo.eagentdroid'
         minSdk 24
         targetSdk 34
-        versionCode 4
-        versionName '1.4-Test'
+        versionCode 5
+        versionName '1.5-Test'
     }
 
     signingConfigs {

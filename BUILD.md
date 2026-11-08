@@ -65,14 +65,14 @@ Android Studio 路线：`File → Open → 选 EAgentDroid 根目录（含 setti
 
 ## 6. 签名
 
-工程根目录已放 `chenxi.jks` + `keystore.properties`（`storePassword=zyc1226`、`keyAlias=chenxi`、`keyPassword=zyc12261226`）。
+工程根目录已放 `chenxi.jks` + `keystore.properties`（自行填写 `storePassword`、`keyAlias`、`keyPassword`，参考 `keystore.properties.example`）。
 
 ```bash
 ./gradlew :app:assembleRelease
 # 产物：app/build/outputs/apk/release/app-release.apk（你的证书已签）
 ```
 
-若报 `Alias ... does not exist` → 别名错（本工程为 `chenxi`）；
+若报 `Alias ... does not exist` → 别名错（与 keystore.properties 里的 keyAlias 一致）；
 `password was incorrect` → 密码错；
 覆盖安装旧包报签名冲突 → 先卸载。
 
@@ -117,7 +117,7 @@ APK 体积 ≈ 2.5～3.5 MB（含 240KB 图标），无 .so
 · 改名（App 里写死读 assets/eadrelay）
 ```
 
-**需要重建时**（源码 `tools/eadrelay.c`）：
+**需要重建时**（源码不在工程内，见工作目录 `extras/tools/eadrelay.c`）：
 ```bash
 NDK=<你的 NDK 目录>
 $NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang \
